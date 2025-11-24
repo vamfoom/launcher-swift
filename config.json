@@ -1,0 +1,70 @@
+{
+  "apps" : {
+    "Images" : [
+
+    ],
+    "Social" : [
+
+    ],
+    "Research" : [
+
+    ],
+    "Utilities" : [
+      {
+        "path" : "\/Applications\/Compressor.app",
+        "name" : "Compressor"
+      }
+    ],
+    "AI Tools" : [
+      {
+        "path" : "\/Applications\/Setapp\/BoltAI.app",
+        "name" : "BoltAI"
+      },
+      {
+        "path" : "https:\/\/gemini.google.com\/app",
+        "name" : "Gemini"
+      }
+    ],
+    "Video" : [
+      {
+        "path" : "\/Applications\/Setapp\/BoltAI.app",
+        "name" : "BoltAI"
+      }
+    ],
+    "Media" : [
+
+    ],
+    "Productivity" : [
+      {
+        "path" : "\/Applications\/DaisyDisk.app",
+        "name" : "DaisyDisk2"
+      }
+    ],
+    "Development" : [
+
+    ]
+  },
+  "category_colors" : {
+    "Utilities" : "#0433ff",
+    "AI Tools" : "#3c3c3c",
+    "Media" : "#3c3c3c",
+    "Productivity" : "#ff40ff",
+    "Research" : "#3c3c3c",
+    "Video" : "#3c3c3c",
+    "Development" : "#3c3c3c",
+    "Images" : "#FFCC00",
+    "Social" : "#3c3c3c"
+  },
+  "categories" : [
+    "Utilities",
+    "Productivity",
+    "Development",
+    "Media",
+    "Social",
+    "Images",
+    "Video",
+    "AI Tools",
+    "Research",
+    "Research"
+  ]
+}
