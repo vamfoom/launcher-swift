@@ -17,6 +17,10 @@ A native macOS launcher application built with Swift and SwiftUI. This project i
 - Xcode 16.0+ (for building from source)
 - Swift 6.0+
 
+## Screenshot of sample config
+<img width="3422" height="2016" alt="CleanShot 2025-11-25 at 12 04 37@2x" src="https://github.com/user-attachments/assets/ec2c9693-0db0-42e0-9703-a47d2c21d58e" />
+
+
 ## Installation
 
 * Download the Launcher.dmg file
