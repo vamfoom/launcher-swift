@@ -72,4 +72,4 @@ The executable will be located in `.build/release/Launcher`. Note that running t
 
 ## License
 
-[MIT License](LICENSE) (Assuming MIT, or you can add the appropriate license)
+[BSD License](LICENSE) (Assuming MIT, or you can add the appropriate license)
