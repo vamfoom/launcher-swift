@@ -3,7 +3,8 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 extension UTType {
-    static let appItem = UTType(exportedAs: "com.launcher.appitem")
+    static let appItem = UTType(exportedAs: "com.launcher.appitem", conformingTo: .json)
+    static let categoryItem = UTType(exportedAs: "com.launcher.categoryitem", conformingTo: .json)
 }
 
 struct AppItem: Identifiable, Codable, Hashable, Transferable {
@@ -17,7 +18,17 @@ struct AppItem: Identifiable, Codable, Hashable, Transferable {
     }
     
     static var transferRepresentation: some TransferRepresentation {
-        CodableRepresentation(contentType: .json)
+        CodableRepresentation(contentType: .appItem)
+    }
+}
+
+struct CategoryProxy: Codable, Transferable {
+    var id: UUID
+    var name: String
+    var isCategory: Bool = true
+    
+    static var transferRepresentation: some TransferRepresentation {
+        CodableRepresentation(contentType: .categoryItem)
     }
 }
 
@@ -176,6 +187,12 @@ class AppState: ObservableObject {
         saveConfig()
     }
     
+    func renameCategory(oldName: String, newName: String) {
+        guard let index = categories.firstIndex(where: { $0.name == oldName }) else { return }
+        categories[index].name = newName
+        saveConfig()
+    }
+    
     func moveApp(item: AppItem, toCategory categoryName: String, before targetApp: AppItem?, isCopy: Bool = false) {
 
         
@@ -226,6 +243,23 @@ class AppState: ObservableObject {
         }
         
 
+        saveConfig()
+        saveConfig()
+    }
+    
+    func moveCategory(item: CategoryProxy, before targetCategory: Category?) {
+        // Find source by ID or Name (since ID might change if reloaded, but here we use proxy ID which should match if session is same)
+        // Actually, let's try to match by ID first, then Name
+        guard let sourceIndex = categories.firstIndex(where: { $0.id == item.id || $0.name == item.name }) else { return }
+        
+        let category = categories.remove(at: sourceIndex)
+        
+        if let targetCategory = targetCategory, let targetIndex = categories.firstIndex(where: { $0.id == targetCategory.id }) {
+            categories.insert(category, at: targetIndex)
+        } else {
+            categories.append(category)
+        }
+        
         saveConfig()
     }
     

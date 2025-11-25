@@ -43,6 +43,35 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<EOF
     <string>14.0</string>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>UTExportedTypeDeclarations</key>
+    <array>
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>com.launcher.appitem</string>
+            <key>UTTypeDescription</key>
+            <string>Launcher App Item</string>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>public.json</string>
+            </array>
+            <key>UTTypeTagSpecification</key>
+            <dict>
+            </dict>
+        </dict>
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>com.launcher.categoryitem</string>
+            <key>UTTypeDescription</key>
+            <string>Launcher Category Item</string>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>public.json</string>
+            </array>
+            <key>UTTypeTagSpecification</key>
+            <dict>
+            </dict>
+        </dict>
+    </array>
 </dict>
 </plist>
 EOF

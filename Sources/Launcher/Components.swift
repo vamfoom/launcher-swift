@@ -122,6 +122,7 @@ extension View {
         panel.canChooseFiles = true
         panel.allowedContentTypes = [.application]
         panel.prompt = "Add"
+        panel.directoryURL = URL(fileURLWithPath: "/Applications")
         
         if panel.runModal() == .OK, let url = panel.url {
             completion(url)
@@ -132,6 +133,7 @@ extension View {
 struct CategoryView: View {
     let category: Category
     @EnvironmentObject var appState: AppState
+    @State private var isTargeted = false
     
     let columns = [
         GridItem(.adaptive(minimum: 80), spacing: 0)
@@ -154,7 +156,8 @@ struct CategoryView: View {
                     Button("Add Web Link...") {
                         showInputDialog(title: "Add Web Link", prompt: "Enter URL:", defaultValue: "https://") { url in
                             if !url.isEmpty {
-                                let item = AppItem(path: url, name: nil)
+                                let name = extractName(from: url)
+                                let item = AppItem(path: url, name: name)
                                 appState.addApp(to: category.name, item: item)
                             }
                         }
@@ -192,9 +195,10 @@ struct CategoryView: View {
         }
         .background(Color(hex: category.color))
         .cornerRadius(10)
+        .cornerRadius(10)
         .overlay(
             RoundedRectangle(cornerRadius: 10)
-                .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                .stroke(isTargeted ? Color.white : Color.white.opacity(0.1), lineWidth: isTargeted ? 3 : 1)
         )
         .contextMenu {
             Button("Add App...") {
@@ -206,7 +210,8 @@ struct CategoryView: View {
             Button("Add Web Link...") {
                 showInputDialog(title: "Add Web Link", prompt: "Enter URL:", defaultValue: "https://") { url in
                     if !url.isEmpty {
-                        let item = AppItem(path: url, name: nil)
+                        let name = extractName(from: url)
+                        let item = AppItem(path: url, name: name)
                         appState.addApp(to: category.name, item: item)
                     }
                 }
@@ -223,11 +228,29 @@ struct CategoryView: View {
             Button("🟣 Purple") { appState.updateCategoryColor(categoryName: category.name, newColor: "#AF52DE") }
             Button("🩶 Gray") { appState.updateCategoryColor(categoryName: category.name, newColor: "#8E8E93") }
             Button("⬛️ Default") { appState.updateCategoryColor(categoryName: category.name, newColor: "#3c3c3c") }
+            Button("🩷 Pink") { appState.updateCategoryColor(categoryName: category.name, newColor: "#FF2D55") }
+            Button("🩵 Teal") { appState.updateCategoryColor(categoryName: category.name, newColor: "#5AC8FA") }
+            Button("💜 Indigo") { appState.updateCategoryColor(categoryName: category.name, newColor: "#5856D6") }
+            Button("🟤 Brown") { appState.updateCategoryColor(categoryName: category.name, newColor: "#A2845E") }
+            Button("🍃 Mint") { appState.updateCategoryColor(categoryName: category.name, newColor: "#00C7BE") }
+            Button("🟦 Cyan") { appState.updateCategoryColor(categoryName: category.name, newColor: "#32ADE6") }
+            Button("💗 Magenta") { appState.updateCategoryColor(categoryName: category.name, newColor: "#FF0090") }
+            Button("🌑 Navy") { appState.updateCategoryColor(categoryName: category.name, newColor: "#000080") }
             
             Divider()
             
             Button("Custom Color...") {
                 appState.openColorPanel(for: category.name)
+            }
+            
+            Divider()
+            
+            Button("Rename Category") {
+                showInputDialog(title: "Rename Category", prompt: "Enter new name:", defaultValue: category.name) { newName in
+                    if !newName.isEmpty {
+                        appState.renameCategory(oldName: category.name, newName: newName)
+                    }
+                }
             }
             
             if category.apps.isEmpty {
@@ -246,6 +269,36 @@ struct CategoryView: View {
             }
             return true
         }
+        .padding(10)
+        .contentShape(Rectangle())
+        .draggable(CategoryProxy(id: category.id, name: category.name))
+        .dropDestination(for: CategoryProxy.self) { items, location -> Bool in
+            guard let droppedItem = items.first else { return false }
+            withAnimation {
+                appState.moveCategory(item: droppedItem, before: category)
+            }
+            return true
+        } isTargeted: { targeted in
+            isTargeted = targeted
+        }
+    }
+    
+    func extractName(from urlString: String) -> String {
+        guard let url = URL(string: urlString), let host = url.host else { return "Web App" }
+        var name = host
+        
+        // Remove TLD (everything after last dot)
+        if let lastDotIndex = name.lastIndex(of: ".") {
+            name = String(name[..<lastDotIndex])
+        }
+        
+        // If remaining string has a dot, remove everything before the first dot (e.g. www.taskade -> taskade)
+        if let firstDotIndex = name.firstIndex(of: ".") {
+            name = String(name[name.index(after: firstDotIndex)...])
+        }
+        
+        // Capitalize first letter
+        return name.prefix(1).capitalized + name.dropFirst()
     }
 }
 
