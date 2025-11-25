@@ -19,6 +19,9 @@ A native macOS launcher application built with Swift and SwiftUI. This project i
 
 ## Installation
 
+* Download the Launcher.dmg file
+* open the Launcher.dmg file and drag the Launcher app to the /Applications folder.
+
 ### Building from Source
 
 1.  **Clone the repository:**
