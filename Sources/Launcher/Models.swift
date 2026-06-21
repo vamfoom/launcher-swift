@@ -13,12 +13,44 @@ struct AppItem: Identifiable, Codable, Hashable, Transferable {
     var name: String?
     
     enum CodingKeys: String, CodingKey {
+        case id
         case path
         case name
     }
     
+    init(id: UUID = UUID(), path: String, name: String? = nil) {
+        self.id = id
+        self.path = path
+        self.name = name
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.path = try container.decode(String.self, forKey: .path)
+        self.name = try container.decodeIfPresent(String.self, forKey: .name)
+        self.id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+    }
+    
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(path, forKey: .path)
+        try container.encodeIfPresent(name, forKey: .name)
+    }
+    
     static var transferRepresentation: some TransferRepresentation {
         CodableRepresentation(contentType: .appItem)
+    }
+    
+    func launch() {
+        if path.hasPrefix("http") || path.hasPrefix("https") {
+            if let url = URL(string: path) {
+                NSWorkspace.shared.open(url)
+            }
+        } else {
+            let url = URL(fileURLWithPath: path)
+            NSWorkspace.shared.open(url)
+        }
     }
 }
 
@@ -43,6 +75,7 @@ struct ConfigData: Codable {
     var categories: [String]
     var apps: [String: [AppItemWrapper]]
     var category_colors: [String: String]?
+    var recent_apps: [AppItemWrapper]?
 }
 
 enum AppItemWrapper: Codable {
@@ -87,6 +120,7 @@ class ColorPanelHelper: NSObject {
 @MainActor
 class AppState: ObservableObject {
     @Published var categories: [Category] = []
+    @Published var recentApps: [AppItem] = []
     var categoryBeingEdited: String?
     private let colorHelper = ColorPanelHelper()
     private var configURL: URL?
@@ -118,7 +152,7 @@ class AppState: ObservableObject {
         } else {
             // Create default config
             let defaultCategories = ["Utilities", "Productivity", "Development", "Media", "Social"]
-            let config = ConfigData(categories: defaultCategories, apps: [:], category_colors: [:])
+            let config = ConfigData(categories: defaultCategories, apps: [:], category_colors: [:], recent_apps: [])
             
             if let encoded = try? JSONEncoder().encode(config) {
                 try? encoded.write(to: url)
@@ -144,9 +178,40 @@ class AppState: ObservableObject {
                 let color = config.category_colors?[catName] ?? "#3c3c3c"
                 return Category(name: catName, apps: apps, color: color)
             }
+            
+            if let recentWrappers = config.recent_apps {
+                self.recentApps = recentWrappers.map { wrapper -> AppItem in
+                    switch wrapper {
+                    case .string(let path):
+                        return AppItem(path: path, name: nil)
+                    case .object(let item):
+                        return item
+                    }
+                }
+            }
         } catch {
             // Error handling ignored
         }
+    }
+    
+    func launchApp(item: AppItem) {
+        item.launch()
+        addToRecents(item: item)
+    }
+    
+    func addToRecents(item: AppItem) {
+        // Remove existing if present (deduplicate)
+        recentApps.removeAll { $0.path == item.path }
+        
+        // Prepend new
+        recentApps.insert(item, at: 0)
+        
+        // Limit to 12
+        if recentApps.count > 12 {
+            recentApps = Array(recentApps.prefix(12))
+        }
+        
+        saveConfig()
     }
     
     func openColorPanel(for categoryName: String) {
@@ -163,8 +228,8 @@ class AppState: ObservableObject {
     }
     
     func renameApp(item: AppItem, newName: String) {
-        guard let catIndex = categories.firstIndex(where: { $0.apps.contains(where: { $0.path == item.path }) }),
-              let appIndex = categories[catIndex].apps.firstIndex(where: { $0.path == item.path }) else { return }
+        guard let catIndex = categories.firstIndex(where: { $0.apps.contains(where: { $0.id == item.id }) }),
+              let appIndex = categories[catIndex].apps.firstIndex(where: { $0.id == item.id }) else { return }
         
         categories[catIndex].apps[appIndex].name = newName
 
@@ -172,8 +237,8 @@ class AppState: ObservableObject {
     }
     
     func updateAppPath(item: AppItem, newPath: String) {
-        guard let catIndex = categories.firstIndex(where: { $0.apps.contains(where: { $0.path == item.path }) }),
-              let appIndex = categories[catIndex].apps.firstIndex(where: { $0.path == item.path }) else { return }
+        guard let catIndex = categories.firstIndex(where: { $0.apps.contains(where: { $0.id == item.id }) }),
+              let appIndex = categories[catIndex].apps.firstIndex(where: { $0.id == item.id }) else { return }
         
         categories[catIndex].apps[appIndex].path = newPath
 
@@ -196,31 +261,23 @@ class AppState: ObservableObject {
     func moveApp(item: AppItem, toCategory categoryName: String, before targetApp: AppItem?, isCopy: Bool = false) {
 
         
-        // Find source category and index by PATH, not ID (because ID changes on decode)
-        guard let sourceCatIndex = categories.firstIndex(where: { $0.apps.contains(where: { $0.path == item.path }) }) else { 
+        // Find source category and index by ID
+        guard let sourceCatIndex = categories.firstIndex(where: { $0.apps.contains(where: { $0.id == item.id }) }) else { 
 
             return 
         }
         
-        guard let sourceIndex = categories[sourceCatIndex].apps.firstIndex(where: { $0.path == item.path }) else { 
+        guard let sourceIndex = categories[sourceCatIndex].apps.firstIndex(where: { $0.id == item.id }) else { 
 
             return 
         }
+        
+        let actualIsCopy = (categories[sourceCatIndex].name == categoryName) ? false : isCopy
         
         let app: AppItem
-        if isCopy {
-            // Create a copy (new ID is generated automatically if we init, but here we are moving the dropped item which is already a copy)
-            // Actually, we should use the item passed in (droppedItem) as the new item, 
-            // and just NOT remove the old one.
-            // But wait, 'item' passed in is the 'droppedItem' which has a new ID.
-            // The 'app' we found in source has the OLD ID.
-            // If we are copying, we want to insert 'item' (the new one) into the target.
-            // And leave the old one alone.
-            app = item 
+        if actualIsCopy {
+            app = AppItem(id: UUID(), path: item.path, name: item.name)
         } else {
-            // If moving, we remove the old one.
-            // And we can insert the old one (to keep ID?) or the new one.
-            // If we want to preserve ID, we should use the one we removed.
             app = categories[sourceCatIndex].apps.remove(at: sourceIndex)
         }
         
@@ -228,19 +285,20 @@ class AppState: ObservableObject {
         guard let targetCatIndex = categories.firstIndex(where: { $0.name == categoryName }) else { 
 
             // Fallback: if we removed it, put it back
-            if !isCopy {
+            if !actualIsCopy {
                 categories[sourceCatIndex].apps.insert(app, at: sourceIndex)
             }
             return 
         }
         
         // Insert at target
-        if let targetApp = targetApp, let targetIndex = categories[targetCatIndex].apps.firstIndex(where: { $0.path == targetApp.path }) {
+        if let targetApp = targetApp, let targetIndex = categories[targetCatIndex].apps.firstIndex(where: { $0.id == targetApp.id }) {
             categories[targetCatIndex].apps.insert(app, at: targetIndex)
         } else {
             // Append if no target (dropped on category)
             categories[targetCatIndex].apps.append(app)
         }
+        
         
 
         saveConfig()
@@ -274,7 +332,9 @@ class AppState: ObservableObject {
             colorsMap[category.name] = category.color
         }
         
-        let config = ConfigData(categories: categoryNames, apps: appsMap, category_colors: colorsMap)
+        let recentWrappers = recentApps.map { AppItemWrapper.object($0) }
+        
+        let config = ConfigData(categories: categoryNames, apps: appsMap, category_colors: colorsMap, recent_apps: recentWrappers)
         
         do {
             let encoder = JSONEncoder()
@@ -301,8 +361,8 @@ class AppState: ObservableObject {
     }
     
     func deleteApp(item: AppItem) {
-        guard let catIndex = categories.firstIndex(where: { $0.apps.contains(where: { $0.path == item.path }) }),
-              let appIndex = categories[catIndex].apps.firstIndex(where: { $0.path == item.path }) else { return }
+        guard let catIndex = categories.firstIndex(where: { $0.apps.contains(where: { $0.id == item.id }) }),
+              let appIndex = categories[catIndex].apps.firstIndex(where: { $0.id == item.id }) else { return }
         
         categories[catIndex].apps.remove(at: appIndex)
         saveConfig()

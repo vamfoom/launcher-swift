@@ -98,6 +98,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
 struct ContentView: View {
     @StateObject var appState = AppState()
+    @State private var searchText = ""
+    @State private var isSearchVisible = false
     
     let columns = [
         GridItem(.flexible(), spacing: 0),
@@ -106,34 +108,78 @@ struct ContentView: View {
     ]
     
     var body: some View {
-        ScrollView {
-            LazyVGrid(columns: columns, spacing: 0) {
-                ForEach(appState.categories) { category in
-                    CategoryView(category: category)
-                        .environmentObject(appState)
+        ZStack {
+            ScrollView {
+                let categories = appState.categories
+                VStack(spacing: 0) {
+                    ForEach(0..<max(1, (categories.count + 2) / 3), id: \.self) { rowIndex in
+                        HStack(spacing: 0) {
+                            ForEach(0..<3, id: \.self) { colIndex in
+                                let index = rowIndex * 3 + colIndex
+                                if index < categories.count {
+                                    CategoryView(category: categories[index])
+                                        .environmentObject(appState)
+                                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                                } else {
+                                    Color.clear
+                                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                }
+                            }
+                        }
+                    }
+                }
+                .padding()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .dropDestination(for: CategoryProxy.self) { items, location -> Bool in
+                guard let droppedItem = items.first else { return false }
+                withAnimation {
+                    appState.moveCategory(item: droppedItem, before: nil)
+                }
+                return true
+            }
+            .onAppear {
+                appState.loadConfig()
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(NSColor.windowBackgroundColor)) // Ensure it has a background to click
+            .contextMenu {
+                Button("New Category") {
+                    showInputDialog(title: "New Category", prompt: "Enter category name:", defaultValue: "") { newName in
+                        if !newName.isEmpty {
+                            appState.addCategory(name: newName)
+                        }
+                    }
                 }
             }
-            .padding()
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-        .dropDestination(for: CategoryProxy.self) { items, location -> Bool in
-            guard let droppedItem = items.first else { return false }
-            withAnimation {
-                appState.moveCategory(item: droppedItem, before: nil)
+            
+            if isSearchVisible {
+                SearchView(searchText: $searchText, isVisible: $isSearchVisible)
+                    .environmentObject(appState)
+                    .transition(.opacity)
             }
-            return true
         }
-        .onAppear {
-            appState.loadConfig()
+        .keyboardShortcut("f", modifiers: .command) // This might need to be attached to a hidden button or similar if it doesn't work on ZStack
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("ToggleSearch"))) { _ in
+            withAnimation {
+                isSearchVisible.toggle()
+            }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(NSColor.windowBackgroundColor)) // Ensure it has a background to click
-        .contextMenu {
-            Button("New Category") {
-                showInputDialog(title: "New Category", prompt: "Enter category name:", defaultValue: "") { newName in
-                    if !newName.isEmpty {
-                        appState.addCategory(name: newName)
-                    }
+        // Global shortcut handler hack
+        .background(
+            Button("") {
+                withAnimation {
+                    isSearchVisible.toggle()
+                }
+            }
+            .keyboardShortcut("f", modifiers: .command)
+            .opacity(0)
+        )
+        .onExitCommand {
+            if isSearchVisible {
+                withAnimation {
+                    isSearchVisible = false
+                    searchText = ""
                 }
             }
         }

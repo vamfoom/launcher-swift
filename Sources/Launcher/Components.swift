@@ -1,20 +1,47 @@
 import AppKit
 import SwiftUI
 
+struct LocalIconView: View {
+    let path: String
+    @State private var icon: NSImage?
+    
+    var body: some View {
+        Group {
+            if let icon = icon {
+                Image(nsImage: icon)
+                    .resizable()
+            } else {
+                Color.clear // Placeholder
+                    .task(id: path) {
+                        await loadIcon()
+                    }
+            }
+        }
+    }
+    
+    @MainActor
+    private func loadIcon() async {
+        if let cached = ImageCache.shared.image(for: path) {
+            self.icon = cached
+            return
+        }
+        
+        // Load in background
+        let loadedIcon = await Task.detached(priority: .userInitiated) {
+            return NSWorkspace.shared.icon(forFile: path)
+        }.value
+        
+        ImageCache.shared.insert(loadedIcon, for: path)
+        self.icon = loadedIcon
+    }
+}
+
 struct AppIconView: View {
     let item: AppItem
     @State private var faviconID = UUID()
     
     func launchApp() {
-
-        if item.path.hasPrefix("http") || item.path.hasPrefix("https") {
-            if let url = URL(string: item.path) {
-                NSWorkspace.shared.open(url)
-            }
-        } else {
-            let url = URL(fileURLWithPath: item.path)
-            NSWorkspace.shared.open(url)
-        }
+        appState.launchApp(item: item)
     }
 
     @EnvironmentObject var appState: AppState
@@ -34,11 +61,11 @@ struct AppIconView: View {
                             .foregroundColor(.white)
                             .background(Circle().fill(Color.blue))
                             .offset(x: 4, y: -4)
+                            .accessibilityHidden(true)
                     }
             } else {
                 // Local App Icon
-                Image(nsImage: NSWorkspace.shared.icon(forFile: item.path))
-                    .resizable()
+                LocalIconView(path: item.path)
                     .frame(width: 48, height: 48)
             }
             
@@ -54,7 +81,6 @@ struct AppIconView: View {
         .onTapGesture(count: 2) {
             launchApp()
         }
-        .draggable(item)
         .draggable(item)
         .contextMenu {
             Button("Rename") {
@@ -81,6 +107,7 @@ struct AppIconView: View {
                 appState.deleteApp(item: item)
             }
         }
+        .accessibilityElement(children: .combine)
     }
     
     var displayName: String {
@@ -109,6 +136,7 @@ extension View {
         let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
         input.stringValue = defaultValue
         alert.accessoryView = input
+        alert.window.initialFirstResponder = input
         
         if alert.runModal() == .alertFirstButtonReturn {
             completion(input.stringValue)
@@ -127,6 +155,21 @@ extension View {
         if panel.runModal() == .OK, let url = panel.url {
             completion(url)
         }
+    }
+}
+
+struct PlusIcon: View {
+    var body: some View {
+        ZStack {
+            Rectangle()
+                .fill(Color.white)
+                .frame(width: 12, height: 2)
+            Rectangle()
+                .fill(Color.white)
+                .frame(width: 2, height: 12)
+        }
+        .frame(width: 16, height: 16)
+        .accessibilityHidden(true)
     }
 }
 
@@ -163,9 +206,9 @@ struct CategoryView: View {
                         }
                     }
                 } label: {
-                    Image(systemName: "plus")
-                        .foregroundColor(.white)
+                    PlusIcon()
                 }
+                .accessibilityLabel("Add Options")
                 .menuStyle(.borderlessButton)
                 .fixedSize() // Prevent expansion
             }
@@ -329,6 +372,20 @@ extension Color {
     }
 }
 
+@MainActor
+class ImageCache {
+    static let shared = ImageCache()
+    private var cache: [String: NSImage] = [:]
+    
+    func image(for url: String) -> NSImage? {
+        return cache[url]
+    }
+    
+    func insert(_ image: NSImage, for url: String) {
+        cache[url] = image
+    }
+}
+
 struct FaviconView: View {
     let url: String
     @State private var currentImage: SwiftUI.Image?
@@ -343,14 +400,22 @@ struct FaviconView: View {
                 SwiftUI.Image(systemName: "globe")
                     .resizable()
                     .foregroundColor(.blue)
-                    .onAppear {
-                        loadFavicon(index: 0)
+                    .accessibilityHidden(true)
+                    .task(id: url) {
+                        await loadFavicon()
                     }
             }
         }
     }
     
-    private func loadFavicon(index: Int) {
+    @MainActor
+    private func loadFavicon() async {
+        // Check cache first
+        if let cached = ImageCache.shared.image(for: url) {
+            self.currentImage = SwiftUI.Image(nsImage: cached)
+            return
+        }
+        
         guard let host = URL(string: url)?.host else { return }
         
         // Helper to get base domain (e.g., "straico.com" from "platform.straico.com")
@@ -365,25 +430,20 @@ struct FaviconView: View {
             "https://www.google.com/s2/favicons?domain=\(host)&sz=64"
         ]
         
-        guard index < sources.count else { return }
-        
-        guard let sourceUrl = URL(string: sources[index]) else {
-            loadFavicon(index: index + 1)
-            return
-        }
-        
-        let task = URLSession.shared.dataTask(with: sourceUrl) { data, response, error in
-            if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200,
-               let data = data, let nsImage = NSImage(data: data) {
-                DispatchQueue.main.async {
+        for source in sources {
+            guard let sourceUrl = URL(string: source) else { continue }
+            
+            do {
+                let (data, response) = try await URLSession.shared.data(from: sourceUrl)
+                if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200,
+                   let nsImage = NSImage(data: data) {
+                    ImageCache.shared.insert(nsImage, for: url)
                     self.currentImage = SwiftUI.Image(nsImage: nsImage)
+                    return // Found a valid icon, stop searching
                 }
-            } else {
-                DispatchQueue.main.async {
-                    self.loadFavicon(index: index + 1)
-                }
+            } catch {
+                continue // Try next source
             }
         }
-        task.resume()
     }
 }
